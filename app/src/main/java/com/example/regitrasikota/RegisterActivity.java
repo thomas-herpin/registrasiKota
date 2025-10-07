@@ -1,5 +1,6 @@
 package com.example.regitrasikota;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -20,37 +21,47 @@ import androidx.core.view.WindowInsetsCompat;
 import com.example.regitrasikota.api.ApiClient;
 import com.example.regitrasikota.api.ApiResponse;
 import com.example.regitrasikota.api.ApiService;
-import com.example.regitrasikota.model.Kabupaten;
-import com.example.regitrasikota.model.Kecamatan;
-import com.example.regitrasikota.model.Kelurahan;
+import com.example.regitrasikota.api.KotaResponse;
+import com.example.regitrasikota.model.Kota;
 import com.example.regitrasikota.model.Provinsi;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.auth.AuthResult;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FirebaseFirestore;
+
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 public class RegisterActivity extends AppCompatActivity {
     Button btnRegister;
     TextView txvLogin;
-    Spinner sprProvinsi, sprKabupaten;
+    Spinner sprProvinsi, sprKota;
+    EditText edtNama, edtStudentID, edtUserName, edtPassword, edtTanggalLahir;
     ApiService apiService;
+    private FirebaseAuth mAuth;
 
 
     List<Provinsi> provinsiList = new ArrayList<>();
-    List<Kabupaten> kabupatenList = new ArrayList<>();
-    List<Kecamatan> kecamatanList = new ArrayList<>();
-    List<Kelurahan> kelurahanList = new ArrayList<>();
-
-    // Adapter list display names
     List<String> namaProvinsi = new ArrayList<>();
-    List<String> namaKabupaten = new ArrayList<>();
-    List<String> namaKecamatan = new ArrayList<>();
-    List<String> namaKelurahan = new ArrayList<>();
+    ArrayAdapter<String> provinsiAdapter;
 
-    ArrayAdapter<String> provinsiAdapter, kabupatenAdapter, kecamatanAdapter, kelurahanAdapter;
+    List<String> namaKota = new ArrayList<>();
+    ArrayAdapter<String> kotaAdapter;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,42 +74,25 @@ public class RegisterActivity extends AppCompatActivity {
             return insets;
         });
 
-        // Inisialisasi view
+
         sprProvinsi = findViewById(R.id.sprProvinsi);
-        sprKabupaten = findViewById(R.id.sprKabupaten);
-        sprKecamatan = findViewById(R.id.sprKecamatan);
-        sprKelurahan = findViewById(R.id.sprKelurahan);
+        sprKota = findViewById(R.id.sprKota);
 
-        // Inisialisasi Retrofit
-        apiService = ApiClient.getClient().create(ApiService.class);
-
-        // Siapkan adapter
         provinsiAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, namaProvinsi);
-        provinsiAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        provinsiAdapter.setDropDownViewResource(android.R.layout.simple_spinner_item);
         sprProvinsi.setAdapter(provinsiAdapter);
 
-        kabupatenAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, namaKabupaten);
-        kabupatenAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        sprKabupaten.setAdapter(kabupatenAdapter);
+        kotaAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, namaKota);
+        kotaAdapter.setDropDownViewResource(android.R.layout.simple_spinner_item);
+        sprKota.setAdapter(kotaAdapter);
 
-        kecamatanAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, namaKecamatan);
-        kecamatanAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        sprKecamatan.setAdapter(kecamatanAdapter);
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl("https://wilayah.id/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .build();
+        apiService = retrofit.create(ApiService.class);
 
-        kelurahanAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, namaKelurahan);
-        kelurahanAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        sprKelurahan.setAdapter(kelurahanAdapter);
-
-        // Load Provinsi
-        loadProvinsi();
-
-        // Setup Listeners
-        setupProvinsiListener();
-        setupKabupatenListener();
-        setupKecamatanListener();
-    }
-
-    private void loadProvinsi() {
+        // Panggil API Provinsi
         apiService.getProvinsi().enqueue(new Callback<ApiResponse>() {
             @Override
             public void onResponse(Call<ApiResponse> call, Response<ApiResponse> response) {
@@ -119,9 +113,7 @@ public class RegisterActivity extends AppCompatActivity {
                 Toast.makeText(RegisterActivity.this, "Gagal ambil provinsi: " + t.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
-    }
 
-    private void setupProvinsiListener() {
         sprProvinsi.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -129,158 +121,132 @@ public class RegisterActivity extends AppCompatActivity {
                 String kodeProv = selected.getCode();
                 Log.d("Provinsi", selected.getCode() + " - " + selected.getName());
 
-                // Reset spinner selanjutnya
-                kabupatenList.clear();
-                kecamatanList.clear();
-                kelurahanList.clear();
-                namaKabupaten.clear();
-                namaKecamatan.clear();
-                namaKelurahan.clear();
-                kabupatenAdapter.notifyDataSetChanged();
-                kecamatanAdapter.notifyDataSetChanged();
-                kelurahanAdapter.notifyDataSetChanged();
+                // Panggil API Kota
+                apiService.getKota(kodeProv).enqueue(new Callback<KotaResponse>() {
+                    @Override
+                    public void onResponse(Call<KotaResponse> call, Response<KotaResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            namaKota.clear();
+                            for (Kota k : response.body().getData()) {
+                                Log.d("Kota", k.getCode() + " - " + k.getName());
+                                namaKota.add(k.getName());
+                            }
+                            kotaAdapter.notifyDataSetChanged();
+                        } else {
+                            Log.e("Kota", "Response gagal: " + response.code());
+                        }
+                    }
 
-                // Load Kabupaten
-                loadKabupaten(kodeProv);
+                    @Override
+                    public void onFailure(Call<KotaResponse> call, Throwable t) {
+                        Log.e("Kota", "Error: " + t.getMessage(), t);
+                        Toast.makeText(RegisterActivity.this, "Gagal ambil kota: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
             }
         });
+
+
+        btnRegister = findViewById(R.id.btnRegister);
+        edtNama = findViewById(R.id.edtNama);
+        edtStudentID = findViewById(R.id.edtStudentID);
+        edtUserName = findViewById(R.id.edtUserName);
+        edtPassword = findViewById(R.id.edtPassword);
+        edtTanggalLahir = findViewById(R.id.edtTanggalLahir);
+        txvLogin = findViewById(R.id.txvLogin);
+
+        txvLogin.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toLogin();
+            }
+        });
+
+
+        btnRegister.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String email = edtUserName.getText().toString().trim();
+                String password = edtPassword.getText().toString();
+                register(email, password);
+                toLogin();
+
+                String nama = edtNama.getText().toString().trim();
+                String studentID = edtStudentID.getText().toString().trim();
+                String provinsi = sprProvinsi.getSelectedItem().toString().trim();
+                String kota = sprKota.getSelectedItem().toString().trim();
+                String tanggalLahir = edtTanggalLahir.getText().toString().trim();
+                registerUser(nama, studentID, provinsi, kota, tanggalLahir, email);
+            }
+        });
+
+        txvLogin.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toLogin();
+            }
+        });
+
+
     }
 
-    private void loadKabupaten(String kodeProvinsi) {
-        apiService.getKabupaten(kodeProvinsi).enqueue(new Callback<List<Kabupaten>>() {
-            @Override
-            public void onResponse(Call<List<Kabupaten>> call, Response<List<Kabupaten>> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    kabupatenList = response.body();
-                    namaKabupaten.clear();
-                    for (Kabupaten k : kabupatenList) {
-                        if (k.getName() != null) {
-                            Log.d("Kabupaten", k.getCode() + " - " + k.getName());
-                            namaKabupaten.add(k.getName());
+    public void registerUser(String nama,String studentID,
+                             String provinsi, String kota,
+                             String tanggalLahir, String email) {
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+        // Create a new user with a first and last name
+        Map<String, Object> user = new HashMap<>();
+        user.put("email", email);
+        user.put("kota", kota);
+        user.put("nama", nama);
+        user.put("provinsi", provinsi);
+        user.put("studentID", studentID);
+        user.put("tanggalLahir", tanggalLahir);
+
+// Add a new document with a generated ID
+        db.collection("users")
+                .add(user)
+                .addOnSuccessListener(new OnSuccessListener<DocumentReference>() {
+                    @Override
+                    public void onSuccess(DocumentReference documentReference) {
+                        Log.d("USER", "DocumentSnapshot added with ID: " + documentReference.getId());
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
+                        Log.w("USER", "Error adding document", e);
+                    }
+                });
+
+    }
+
+    public void register(String email, String password) {
+        mAuth = FirebaseAuth.getInstance();
+        mAuth.createUserWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this, new OnCompleteListener<AuthResult>() {
+                    @Override
+                    public void onComplete(@NonNull Task<AuthResult> task) {
+                        if (task.isSuccessful()) {
+                            Log.d("Register", "createUserWithEmail:success");
+                            Toast.makeText(RegisterActivity.this, "Registrasi berhasil!", Toast.LENGTH_SHORT).show();
+                            toLogin();
+                        } else {
+                            Log.w("Register", "createUserWithEmail:failure", task.getException());
+                            Toast.makeText(RegisterActivity.this, "Registrasi gagal: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                         }
                     }
-                    kabupatenAdapter.notifyDataSetChanged();
-                } else {
-                    Log.e("Kabupaten", "Response gagal: " + response.code());
-                }
-            }
-
-            @Override
-            public void onFailure(Call<List<Kabupaten>> call, Throwable t) {
-                Log.e("Kabupaten", "Error: " + t.getMessage(), t);
-                Toast.makeText(RegisterActivity.this, "Gagal ambil kabupaten: " + t.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
+                });
     }
 
-    private void setupKabupatenListener() {
-        sprKabupaten.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (kabupatenList.isEmpty()) return;
 
-                Kabupaten selected = kabupatenList.get(position);
-                String kodeKab = selected.getCode();
-                Log.d("Kabupaten Selected", selected.getCode() + " - " + selected.getName());
-
-                // Reset spinner selanjutnya
-                kecamatanList.clear();
-                kelurahanList.clear();
-                namaKecamatan.clear();
-                namaKelurahan.clear();
-                kecamatanAdapter.notifyDataSetChanged();
-                kelurahanAdapter.notifyDataSetChanged();
-
-                // Load Kecamatan
-                loadKecamatan(kodeKab);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
+    public void toLogin(){
+        Intent intent = new Intent(this, LoginActivity.class);
+        startActivity(intent);
     }
 
-    private void loadKecamatan(String kodeKabupaten) {
-        apiService.getKecamatan(kodeKabupaten).enqueue(new Callback<List<Kecamatan>>() {
-            @Override
-            public void onResponse(Call<List<Kecamatan>> call, Response<List<Kecamatan>> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    kecamatanList = response.body();
-                    namaKecamatan.clear();
-                    for (Kecamatan kec : kecamatanList) {
-                        if (kec.getName() != null) {
-                            Log.d("Kecamatan", kec.getCode() + " - " + kec.getName());
-                            namaKecamatan.add(kec.getName());
-                        }
-                    }
-                    kecamatanAdapter.notifyDataSetChanged();
-                } else {
-                    Log.e("Kecamatan", "Response gagal: " + response.code());
-                }
-            }
-
-            @Override
-            public void onFailure(Call<List<Kecamatan>> call, Throwable t) {
-                Log.e("Kecamatan", "Error: " + t.getMessage(), t);
-                Toast.makeText(RegisterActivity.this, "Gagal ambil kecamatan: " + t.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    private void setupKecamatanListener() {
-        sprKecamatan.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (kecamatanList.isEmpty()) return;
-
-                Kecamatan selected = kecamatanList.get(position);
-                String kodeKec = selected.getCode();
-                Log.d("Kecamatan Selected", selected.getCode() + " - " + selected.getName());
-
-                // Reset spinner selanjutnya
-                kelurahanList.clear();
-                namaKelurahan.clear();
-                kelurahanAdapter.notifyDataSetChanged();
-
-                // Load Kelurahan
-                loadKelurahan(kodeKec);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
-    }
-
-    private void loadKelurahan(String kodeKecamatan) {
-        apiService.getKelurahan(kodeKecamatan).enqueue(new Callback<List<Kelurahan>>() {
-            @Override
-            public void onResponse(Call<List<Kelurahan>> call, Response<List<Kelurahan>> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    kelurahanList = response.body();
-                    namaKelurahan.clear();
-                    for (Kelurahan kel : kelurahanList) {
-                        if (kel.getName() != null) {
-                            Log.d("Kelurahan", kel.getCode() + " - " + kel.getName());
-                            namaKelurahan.add(kel.getName());
-                        }
-                    }
-                    kelurahanAdapter.notifyDataSetChanged();
-                } else {
-                    Log.e("Kelurahan", "Response gagal: " + response.code());
-                }
-            }
-
-            @Override
-            public void onFailure(Call<List<Kelurahan>> call, Throwable t) {
-                Log.e("Kelurahan", "Error: " + t.getMessage(), t);
-                Toast.makeText(RegisterActivity.this, "Gagal ambil kelurahan: " + t.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
 }

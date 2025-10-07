@@ -7,11 +7,7 @@ import java.util.List;
 public class ApiResponse {
     private List<Provinsi> data;
 
-    public List<Provinsi> getData() {
+    public List<Provinsi> getData(){
         return data;
-    }
-
-    public void setData(List<Provinsi> data) {
-        this.data = data;
     }
 }
